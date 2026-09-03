@@ -838,7 +838,9 @@ class Bridge:
     # Entités d'alarme publiées par le mode mobile, sous le MÊME appareil que
     # les commandes HomeAPI (le slug = numéro de série est identique).
     _MOBILE_ENTITIES = {
-        "alarm_door": ("Alarme porte", {"device_class": "door"}),
+        # device_class "problem" (not "door") so the Jeedom MQTT Discovery
+        # plugin keeps our name instead of forcing "Etat porte".
+        "alarm_door": ("Alerte porte", {"device_class": "problem"}),
         "alarm_temperature": ("Alarme température", {"device_class": "problem"}),
         "alarm_power": ("Coupure de courant", {"device_class": "problem"}),
         "alarm_air_filter": ("Rappel filtre à air", {"device_class": "problem"}),
