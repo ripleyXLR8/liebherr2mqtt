@@ -93,6 +93,9 @@ AVAILABLE = "online"
 NOT_AVAILABLE = "offline"
 
 APP_VERSION = "1.0 (mobile-api)"
+AUTHOR = "Richard Perez"
+GITHUB = "github.com/ripleyXLR8"
+EMAIL = "4702185+ripleyXLR8@users.noreply.github.com"
 
 
 def slugify(value: str) -> str:
@@ -1189,6 +1192,12 @@ def print_banner(config: configparser.ConfigParser, auth_mode: bool) -> None:
         lines.append("Mobile-API : désactivé")
     if auth_mode:
         lines.append("Mode       : AUTH (web UI de connexion mobile seulement)")
+    lines += [
+        "",
+        f"Auteur     : {AUTHOR}",
+        f"GitHub     : {GITHUB}",
+        f"Email      : {EMAIL}",
+    ]
 
     art = [
         r"  _ _      _   _                    ___              _   _   ",
