@@ -577,7 +577,7 @@ class Bridge:
             control = dev.controls.get(entity.control_key)
             if control is not None:
                 try:
-                    dev.controls[key] = entity.optimistic(control, payload)
+                    dev.controls[entity.control_key] = entity.optimistic(control, payload)
                 except (TypeError, ValueError):
                     pass
         self._publish(dev.state_topic(entity), payload)
