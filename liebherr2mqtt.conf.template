@@ -1,0 +1,50 @@
+; liebherr2mqtt - configuration file
+;
+; Copy this file to /config/liebherr2mqtt.conf and fill it in.
+; Every setting below can also be supplied through an environment variable,
+; which takes precedence over the file. The variable name is given in the
+; comment above each option, and that is what the Unraid template uses.
+
+[liebherr]
+; LIEBHERR_API_KEY
+; Generated in the SmartDevice mobile app:
+;   Settings > Become a beta tester > Activate the HomeAPI interface >
+;   Generate a new key
+; The key can only be copied once, so store it somewhere safe.
+api_key =
+
+; LIEBHERR_REFRESH_INTERVAL
+; Seconds between two full re-reads of the appliance state (0 disables it).
+; State changes normally arrive as a push over Server-Sent Events, so this is
+; only a safety net. Do not lower it much: Liebherr rate-limits the HomeAPI
+; and has been known to block calling IP addresses.
+refresh_interval = 900
+
+[mqtt]
+; MQTT_HOST / MQTT_PORT
+host = 127.0.0.1
+port = 1883
+
+; MQTT_USER / MQTT_PASSWORD - leave empty for an anonymous broker.
+login =
+password =
+
+; MQTT_CLIENT_ID
+client_id = liebherr2mqtt
+
+; MQTT_DISCOVERY_PREFIX
+; Where discovery messages are published. Must match what your consumer
+; listens on: "homeassistant" for Home Assistant, and the "configuration
+; topic" of the Jeedom MQTT Discovery plugin.
+discovery_prefix = homeassistant
+
+; MQTT_TOPIC_PREFIX
+; Root of the state and command topics.
+; Jeedom users: this prefix must also be listed in the "data topics" setting
+; of the MQTT Discovery plugin, otherwise the plugin silently ignores the
+; discovery messages.
+topic_prefix = liebherr
+
+[log]
+; LOG_LEVEL - DEBUG, INFO, WARNING or ERROR.
+level = INFO
