@@ -6,6 +6,9 @@ LABEL org.opencontainers.image.licenses="MIT"
 
 ENV PYTHONUNBUFFERED=1
 
+# Web UI for the optional, experimental mobile-API login (off by default).
+EXPOSE 8099
+
 WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt

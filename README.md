@@ -168,32 +168,42 @@ extra entities **under the same device**:
 `ghcr.io/ripleyxlr8/liebherr2mqtt:mobile-api` (multi-arch), which stays separate
 from `:latest`.
 
-**2. One-off login.** The OAuth flow needs an interactive login in a browser
-_you_ control; the bridge never sees your Liebherr password.
+**2. Turn the mode on and publish the web UI port.** Set
+`MOBILE_API_ENABLED=true` (or `enabled = true` under `[mobile]`) and map port
+`8099`. The HomeAPI path keeps working exactly as before.
+
+**3. One-off login, in the browser.** Open `http://<container-host>:8099` and
+click **Se connecter à Liebherr**. You are sent to `login.liebherr.com`; the
+login happens there, the bridge never sees your password.
+
+> The OAuth client only accepts the app's private `smartdevice://auth` redirect,
+> so the identity provider cannot hand the code straight back to the web UI.
+> After you log in, the browser tries to open a `smartdevice://auth?code=...` URL
+> that does not resolve — copy it from the address bar and paste it into the box
+> on the same page. Do this on a device **without** the Liebherr app installed
+> (a PC), otherwise the app intercepts the URL instead of showing it.
+
+The token, including a refresh token, is written to
+`/config/liebherr_mobile_token.json`; the login is not needed again, and polling
+starts on its own — no restart. The web UI then shows the auth status and the
+current alarm states.
+
+You can also do the login before enabling the full bridge, with the web UI on
+its own (no broker needed):
 
 ```bash
-docker run -it --rm \
+docker run -it --rm -p 8099:8099 \
   -v /mnt/user/appdata/liebherr2mqtt:/config \
   ghcr.io/ripleyxlr8/liebherr2mqtt:mobile-api auth
 ```
-
-It prints an authorization URL. Open it, log in on `login.liebherr.com`, and the
-browser will try to open a `smartdevice://auth?code=...` URL that does not
-resolve (it is the app's private scheme) — copy that whole URL from the address
-bar and paste it back at the prompt. The token, including a refresh token, is
-written to `/config/liebherr_mobile_token.json` and the login is not needed
-again.
-
-**3. Turn the mode on.** Set `MOBILE_API_ENABLED=true` (or `enabled = true`
-under `[mobile]` in the config file) and restart the container normally. The
-HomeAPI path keeps working exactly as before; the alarm entities appear
-alongside it.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `MOBILE_API_ENABLED` | `false` | Master switch for this mode |
 | `MOBILE_POLL_INTERVAL` | `300` | Seconds between notification polls |
 | `MOBILE_TOKEN_FILE` | `/config/liebherr_mobile_token.json` | OAuth token store |
+| `MOBILE_WEB_ENABLED` | `true` | Serve the login web UI |
+| `MOBILE_WEB_HOST` / `MOBILE_WEB_PORT` | `0.0.0.0` / `8099` | Where the web UI binds |
 | `MOBILE_AUTH_BASE` / `MOBILE_API_BASE` | login / mobile-api hosts | Override for staging |
 | `MOBILE_CLIENT_ID` / `MOBILE_REDIRECT_URI` / `MOBILE_SCOPE` | app defaults | Rarely changed |
 

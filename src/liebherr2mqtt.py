@@ -21,6 +21,7 @@ import os
 import re
 import signal
 import sys
+import time
 import unicodedata
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
@@ -184,6 +185,13 @@ class Bridge:
         self._mobile: Any = None
         self._mobile_session: Any = None
         self._mobile_discovery_done: set[str] = set()
+        self._mobile_web: Any = None
+        self._mobile_status: dict[str, Any] = {
+            "authorised": False,
+            "last_poll": None,
+            "last_error": None,
+            "alarms": {},
+        }
 
     # ------------------------------------------------------------------
     # Construction des entités à partir des contrôles déclarés par l'appareil
@@ -767,8 +775,20 @@ class Bridge:
     # Sous-système mobile (optionnel, expérimental) — alarmes/notifications
     # ------------------------------------------------------------------
 
+    def _mobile_cfg_get(self, opt: str, default: str) -> str:
+        return (
+            self._config.get("mobile", opt, fallback=default)
+            if self._config.has_section("mobile")
+            else default
+        )
+
     async def _setup_mobile(self) -> bool:
-        """Prépare le client mobile. Retourne False si indisponible (jamais fatal)."""
+        """Crée le client mobile et, si demandé, la web UI de connexion.
+
+        Retourne True seulement si un jeton est déjà présent (→ démarrer le
+        relevé des alarmes). La web UI, elle, démarre même sans jeton : c'est
+        justement là qu'on s'en sert pour se connecter. Jamais fatal.
+        """
         try:
             import aiohttp
             from mobile_client import MobileClient, MobileConfig
@@ -779,11 +799,29 @@ class Bridge:
         cfg = MobileConfig.from_configparser(self._config)
         self._mobile_session = aiohttp.ClientSession()
         self._mobile = MobileClient(cfg, self._mobile_session)
+
+        if _as_bool(self._mobile_cfg_get("web_enabled", "true")):
+            try:
+                from web_ui import MobileWebUI
+
+                self._mobile_web = MobileWebUI(
+                    self._mobile,
+                    status_provider=lambda: self._mobile_status,
+                    host=self._mobile_cfg_get("web_host", "0.0.0.0"),
+                    port=int(self._mobile_cfg_get("web_port", "8099")),
+                )
+                await self._mobile_web.start()
+            except Exception as err:  # noqa: BLE001 — la web UI ne doit rien casser
+                LOGGER.error("Web UI de connexion indisponible : %s", err)
+                self._mobile_web = None
+
+        self._mobile_status["authorised"] = self._mobile.is_authorised
         if not self._mobile.is_authorised:
             LOGGER.warning(
-                "Mode mobile activé mais aucun jeton : lancer d'abord la connexion "
-                "unique (commande 'auth'). Les alarmes ne remonteront pas tant que "
-                "ce n'est pas fait."
+                "Mode mobile activé mais aucun jeton. Connectez-vous via la web UI "
+                "(port %s), ou lancez la commande 'auth'. Les alarmes ne remonteront "
+                "pas tant que ce n'est pas fait.",
+                self._mobile_cfg_get("web_port", "8099"),
             )
             return False
         LOGGER.info("Sous-système mobile prêt (relevé des alarmes toutes les %ds)", cfg.poll_interval)
@@ -862,19 +900,34 @@ class Bridge:
             if self._config.has_section("mobile")
             else "300"
         )
-        # Appareils connus côté mobile, pour publier même sans alarme active.
-        try:
-            appliances = await self._mobile.get_appliances()
-        except Exception as err:  # noqa: BLE001 — jamais fatal pour le pont
-            LOGGER.warning("Liste des appareils mobile indisponible : %s", err)
-            appliances = []
-        mobile_ids = {
-            (a.get("deviceId") or a.get("applianceId"))
-            for a in appliances
-            if (a.get("deviceId") or a.get("applianceId"))
-        }
+        mobile_ids: set[str] = set()
+        appliances_fetched = False
 
         while not self._stopping.is_set():
+            # Tant que la connexion (web UI) n'a pas eu lieu, on attend sans rien
+            # publier — le relevé démarre tout seul dès qu'un jeton existe.
+            if not self._mobile.is_authorised:
+                self._mobile_status["authorised"] = False
+                try:
+                    await asyncio.wait_for(self._stopping.wait(), timeout=15)
+                    return
+                except asyncio.TimeoutError:
+                    continue
+            self._mobile_status["authorised"] = True
+
+            # Liste des appareils (une fois), pour publier même sans alarme.
+            if not appliances_fetched:
+                try:
+                    appliances = await self._mobile.get_appliances()
+                    mobile_ids = {
+                        (a.get("deviceId") or a.get("applianceId"))
+                        for a in appliances
+                        if (a.get("deviceId") or a.get("applianceId"))
+                    }
+                    appliances_fetched = True
+                except Exception as err:  # noqa: BLE001 — jamais fatal
+                    LOGGER.warning("Liste des appareils mobile indisponible : %s", err)
+
             try:
                 notes = await self._mobile.get_notifications()
                 summary = summarise_notifications(notes)
@@ -918,9 +971,21 @@ class Bridge:
                             f"{self._topic_prefix}/{slug}/last_notification/state", text
                         )
                     self._publish(self._mobile_avail_topic(slug), AVAILABLE)
+                # Résumé pour la web UI : label lisible -> alarme active.
+                alarms_label: dict[str, bool] = {}
+                for cats in summary.values():
+                    for key, (label, _extra) in self._MOBILE_ENTITIES.items():
+                        category = key[len("alarm_"):]
+                        if cats.get(category, {}).get("active"):
+                            alarms_label[label] = True
+                        alarms_label.setdefault(label, alarms_label.get(label, False))
+                self._mobile_status["alarms"] = alarms_label
+                self._mobile_status["last_poll"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                self._mobile_status["last_error"] = None
                 LOGGER.debug("Alarmes mobile relevées (%d notification(s))", len(notes))
             except Exception as err:  # noqa: BLE001
                 LOGGER.warning("Relevé des alarmes mobile échoué : %s", err)
+                self._mobile_status["last_error"] = str(err)
                 for slug in self._mobile_discovery_done:
                     self._publish(self._mobile_avail_topic(slug), NOT_AVAILABLE)
             try:
@@ -939,8 +1004,13 @@ class Bridge:
                 asyncio.create_task(self._stream(dev)) for dev in self._devices.values()
             ]
             tasks.append(asyncio.create_task(self._periodic_refresh()))
-            if self._mobile_enabled and await self._setup_mobile():
-                tasks.append(asyncio.create_task(self._mobile_poll()))
+            if self._mobile_enabled:
+                # _setup_mobile crée le client + la web UI (même sans jeton) ;
+                # le relevé attend l'authentification et démarre tout seul après
+                # une connexion via la web UI, sans redémarrage.
+                await self._setup_mobile()
+                if self._mobile is not None:
+                    tasks.append(asyncio.create_task(self._mobile_poll()))
             stop = asyncio.create_task(self._stopping.wait())
             done, _ = await asyncio.wait(
                 [*tasks, stop], return_when=asyncio.FIRST_COMPLETED
@@ -968,6 +1038,12 @@ class Bridge:
         if self._client is not None:
             await self._client.close()
             self._client = None
+        if self._mobile_web is not None:
+            try:
+                await self._mobile_web.stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self._mobile_web = None
         if self._mobile_session is not None:
             try:
                 await self._mobile_session.close()
@@ -1002,6 +1078,9 @@ ENV_OVERRIDES = {
     "MOBILE_SCOPE": ("mobile", "scope"),
     "MOBILE_TOKEN_FILE": ("mobile", "token_file"),
     "MOBILE_POLL_INTERVAL": ("mobile", "poll_interval"),
+    "MOBILE_WEB_ENABLED": ("mobile", "web_enabled"),
+    "MOBILE_WEB_HOST": ("mobile", "web_host"),
+    "MOBILE_WEB_PORT": ("mobile", "web_port"),
 }
 
 
@@ -1032,52 +1111,53 @@ def load_config(path: str) -> configparser.ConfigParser:
 
 
 async def run_auth(config: configparser.ConfigParser) -> int:
-    """Connexion unique au mode mobile : flux OAuth Authorization Code + PKCE.
+    """Connexion unique au mode mobile, via la web UI hébergée par le conteneur.
 
-    L'utilisateur ouvre l'URL affichée, se connecte sur login.liebherr.com, et
-    recolle l'URL smartdevice://auth?code=... que le navigateur tente d'ouvrir.
-    Le jeton (dont le refresh token) est alors écrit et la passerelle s'auto-
+    Démarre uniquement le petit serveur web (pas de MQTT) : on ouvre son adresse
+    dans un navigateur, on clique « Se connecter à Liebherr », on se connecte sur
+    login.liebherr.com, puis on recolle l'URL smartdevice://auth?code=... dans la
+    page. Le jeton (dont le refresh token) est écrit et la passerelle s'auto-
     authentifie ensuite toute seule.
     """
-    import secrets
-
     import aiohttp
-    from mobile_client import MobileAuthError, MobileClient, MobileConfig
+    from mobile_client import MobileClient, MobileConfig
+    from web_ui import MobileWebUI
 
     cfg = MobileConfig.from_configparser(config)
+    host = (
+        config.get("mobile", "web_host", fallback="0.0.0.0")
+        if config.has_section("mobile")
+        else "0.0.0.0"
+    )
+    port = int(
+        config.get("mobile", "web_port", fallback="8099")
+        if config.has_section("mobile")
+        else "8099"
+    )
+    stopping = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stopping.set)
+
     async with aiohttp.ClientSession() as session:
         client = MobileClient(cfg, session)
-        verifier, _ = generate_pkce_pair()
-        state = secrets.token_urlsafe(16)
-        url = client.build_authorize_url(verifier, state)
-        print("\n=== Connexion au mode mobile Liebherr (expérimental) ===\n")
-        print("1. Ouvrez cette URL dans un navigateur et connectez-vous :\n")
-        print(url + "\n")
-        print(
-            "2. Après connexion, le navigateur tente d'ouvrir une URL\n"
-            "   'smartdevice://auth?code=...'. Elle ne s'ouvrira pas (schéma privé) :\n"
-            "   copiez-la depuis la barre d'adresse et collez-la ci-dessous.\n"
-        )
-        redirect = input("URL de redirection : ").strip()
+        status = {"authorised": client.is_authorised}
+        web_ui = MobileWebUI(client, lambda: status, host=host, port=port)
+        await web_ui.start()
+        shown = f"http://{host}:{port}" if host != "0.0.0.0" else f"http://<IP-du-serveur>:{port}"
+        print("\n=== Connexion au mode mobile Liebherr (expérimental) ===")
+        print(f"Ouvrez  {shown}  dans un navigateur, puis suivez les 2 étapes.")
+        print("Ctrl+C pour quitter une fois connecté.\n")
         try:
-            code = client.extract_code(redirect)
-            await client.exchange_code(code, verifier)
-        except MobileAuthError as err:
-            print(f"\nÉchec : {err}\n")
-            return 4
-        print(f"\n✓ Jeton enregistré dans {cfg.token_file}")
-        try:
-            appliances = await client.get_appliances()
-            print(f"✓ Connexion vérifiée : {len(appliances)} appareil(s) visible(s) côté mobile.")
-        except Exception as err:  # noqa: BLE001
-            print(f"(Jeton enregistré, mais la vérification a échoué : {err})")
+            while not stopping.is_set():
+                status["authorised"] = client.is_authorised
+                try:
+                    await asyncio.wait_for(stopping.wait(), timeout=2)
+                except asyncio.TimeoutError:
+                    pass
+        finally:
+            await web_ui.stop()
     return 0
-
-
-def generate_pkce_pair() -> tuple[str, str]:
-    from mobile_client import generate_pkce
-
-    return generate_pkce()
 
 
 async def main() -> int:

@@ -68,6 +68,14 @@ poll_interval = 300
 ; MOBILE_TOKEN_FILE
 token_file = /config/liebherr_mobile_token.json
 
+; Login web UI hosted by the container. Open http://<host>:<port> in a browser
+; to connect the Liebherr account (one-off) and to see the mobile-mode status.
+; LAN only — it has no authentication of its own.
+; MOBILE_WEB_ENABLED / MOBILE_WEB_HOST / MOBILE_WEB_PORT
+web_enabled = true
+web_host = 0.0.0.0
+web_port = 8099
+
 ; The rest default to the values used by the official app and rarely need
 ; changing (staging/dev hosts aside):
 ; MOBILE_AUTH_BASE      = https://login.liebherr.com
