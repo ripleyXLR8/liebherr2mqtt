@@ -81,5 +81,5 @@ web_port = 8099
 ; MOBILE_AUTH_BASE      = https://login.liebherr.com
 ; MOBILE_API_BASE       = https://mobile-api.smartdevice.liebherr.com
 ; MOBILE_CLIENT_ID      = mobileapps_hau_smartdevice_flutter
-; MOBILE_REDIRECT_URI   = smartdevice://auth
+; MOBILE_REDIRECT_URI   = com.liebherr.hau.smartdevice://auth
 ; MOBILE_SCOPE          = openid profile email offline_access

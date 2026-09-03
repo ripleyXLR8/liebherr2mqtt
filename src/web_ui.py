@@ -1,10 +1,10 @@
 """Small web UI hosted by the container to drive the mobile-API login.
 
 Why a paste step remains: the Liebherr OAuth client only accepts the custom
-scheme ``smartdevice://auth`` as a redirect URI, so the identity provider cannot
+scheme ``com.liebherr.hau.smartdevice://auth`` as a redirect URI, so the identity provider cannot
 redirect back to a web server. This UI therefore wraps the manual flow — it
 starts the login (one click), and after the user signs in on login.liebherr.com
-they paste back the ``smartdevice://auth?code=...`` URL the browser tried to
+they paste back the ``com.liebherr.hau.smartdevice://auth?code=...`` URL the browser tried to
 open. No terminal, works from any browser on the LAN, and the same page shows
 whether the mobile mode is authorised and what the last poll saw.
 
@@ -151,10 +151,10 @@ class MobileWebUI:
         paste_form = """
 <div class="card">
   <p><b>2.</b> Après connexion, le navigateur essaie d'ouvrir une URL
-  <code>smartdevice://auth?code=…</code> qui ne s'ouvre pas (schéma privé de
+  <code>com.liebherr.hau.smartdevice://auth?code=…</code> qui ne s'ouvre pas (schéma privé de
   l'app). Copiez-la depuis la barre d'adresse et collez-la ici :</p>
   <form method="post" action="/complete">
-    <input type="text" name="redirect" placeholder="smartdevice://auth?code=..." autofocus>
+    <input type="text" name="redirect" placeholder="com.liebherr.hau.smartdevice://auth?code=..." autofocus>
     <p><button type="submit">Valider la connexion</button></p>
   </form>
   <p><small>Astuce : faites-le sur un appareil <b>sans</b> l'app Liebherr installée

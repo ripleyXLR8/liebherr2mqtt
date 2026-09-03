@@ -10,13 +10,16 @@ It is off by default and completely independent of the HomeAPI path: the bridge
 runs normally on the api-key without ever importing anything here unless the
 mobile mode is explicitly enabled.
 
-How it authenticates (all values observed in the app, confirmed against the
-public OIDC discovery document at login.liebherr.com/.well-known/openid-configuration):
+How it authenticates (captured from the app's own authorize request; the
+endpoints match the public OIDC discovery at
+login.liebherr.com/.well-known/openid-configuration):
 
 - OAuth 2.0 Authorization Code + PKCE (S256) against https://login.liebherr.com
-- client_id  : mobileapps_hau_smartdevice_flutter
-- redirect   : smartdevice://auth
-- scope      : openid profile email offline_access  (offline_access → refresh token)
+- client_id  : ae526c20-1467-4d46-a061-bbc203573d1a
+- redirect   : com.liebherr.hau.smartdevice://auth
+- scope      : openid profile email offline_access hau:sdb:smartdevice:2.0
+              (offline_access → refresh token; hau:sdb:smartdevice:2.0 is the
+              resource scope that grants access to the mobile API)
 
 The interactive login is a one-off (run `... auth`); after that the refresh
 token in the token file keeps the daemon authenticated on its own.
@@ -46,11 +49,14 @@ import aiohttp
 LOGGER = logging.getLogger("liebherr2mqtt.mobile")
 
 # --- Defaults observed in the SmartDevice app / OIDC discovery -------------
+# These are the values the official app sends, captured from the app's own
+# authorize request (client_id and scope from static analysis were wrong; the
+# real ones were confirmed on the wire).
 DEFAULT_AUTH_BASE = "https://login.liebherr.com"
 DEFAULT_API_BASE = "https://mobile-api.smartdevice.liebherr.com"
-DEFAULT_CLIENT_ID = "mobileapps_hau_smartdevice_flutter"
-DEFAULT_REDIRECT_URI = "smartdevice://auth"
-DEFAULT_SCOPE = "openid profile email offline_access"
+DEFAULT_CLIENT_ID = "ae526c20-1467-4d46-a061-bbc203573d1a"
+DEFAULT_REDIRECT_URI = "com.liebherr.hau.smartdevice://auth"
+DEFAULT_SCOPE = "openid profile email offline_access hau:sdb:smartdevice:2.0"
 
 # Notification types the app knows about, mapped to a coarse category so a
 # handful of stable MQTT entities cover the lot. Unknown types fall back to a
@@ -186,7 +192,7 @@ class MobileClient:
         if "code" not in qs:
             raise MobileAuthError(
                 "No 'code' in the redirect URL. Paste the full "
-                "smartdevice://auth?... URL the browser tried to open."
+                "com.liebherr.hau.smartdevice://auth?... URL the browser tried to open."
             )
         return qs["code"][0]
 

@@ -1115,7 +1115,7 @@ async def run_auth(config: configparser.ConfigParser) -> int:
 
     Démarre uniquement le petit serveur web (pas de MQTT) : on ouvre son adresse
     dans un navigateur, on clique « Se connecter à Liebherr », on se connecte sur
-    login.liebherr.com, puis on recolle l'URL smartdevice://auth?code=... dans la
+    login.liebherr.com, puis on recolle l'URL com.liebherr.hau.smartdevice://auth?code=... dans la
     page. Le jeton (dont le refresh token) est écrit et la passerelle s'auto-
     authentifie ensuite toute seule.
     """

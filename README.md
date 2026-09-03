@@ -176,9 +176,9 @@ from `:latest`.
 click **Se connecter à Liebherr**. You are sent to `login.liebherr.com`; the
 login happens there, the bridge never sees your password.
 
-> The OAuth client only accepts the app's private `smartdevice://auth` redirect,
+> The OAuth client only accepts the app's private `com.liebherr.hau.smartdevice://auth` redirect,
 > so the identity provider cannot hand the code straight back to the web UI.
-> After you log in, the browser tries to open a `smartdevice://auth?code=...` URL
+> After you log in, the browser tries to open a `com.liebherr.hau.smartdevice://auth?code=...` URL
 > that does not resolve — copy it from the address bar and paste it into the box
 > on the same page. Do this on a device **without** the Liebherr app installed
 > (a PC), otherwise the app intercepts the URL instead of showing it.
