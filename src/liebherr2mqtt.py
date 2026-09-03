@@ -92,6 +92,9 @@ AVAILABLE = "online"
 NOT_AVAILABLE = "offline"
 
 APP_VERSION = "1.0"
+AUTHOR = "Richard Perez"
+GITHUB = "github.com/ripleyXLR8"
+EMAIL = "4702185+ripleyXLR8@users.noreply.github.com"
 
 
 def slugify(value: str) -> str:
@@ -843,6 +846,10 @@ def print_banner(config: configparser.ConfigParser) -> None:
         f"MQTT       : {g('mqtt', 'host', '127.0.0.1')}:{g('mqtt', 'port', '1883')}"
         f"  (discovery={g('mqtt', 'discovery_prefix', 'homeassistant')}, topics={g('mqtt', 'topic_prefix', 'liebherr')})",
         f"HomeAPI    : clé api-key, états en push (SSE) — filet {g('liebherr', 'refresh_interval', '900')}s",
+        "",
+        f"Auteur     : {AUTHOR}",
+        f"GitHub     : {GITHUB}",
+        f"Email      : {EMAIL}",
     ]
     art = [
         r"  _ _      _   _                    ___              _   _   ",
