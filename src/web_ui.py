@@ -147,26 +147,36 @@ class MobileWebUI:
             return _page("Mode mobile — authentifié", body)
 
         # Not authorised yet
-        pending = bool(self._pending)
-        paste_form = """
+        body = f"""{flash_html}
 <div class="card">
-  <p><b>2.</b> Après connexion, le navigateur essaie d'ouvrir une URL
-  <code>com.liebherr.hau.smartdevice://auth?code=…</code> qui ne s'ouvre pas (schéma privé de
-  l'app). Copiez-la depuis la barre d'adresse et collez-la ici :</p>
+  <p class="warn">Le mode mobile n'est pas encore authentifié.</p>
+  <p><b>Étape 1 —</b> ouvrez la connexion Liebherr (nouvel onglet) et connectez-vous :</p>
+  <a class="button" href="/login" target="_blank" rel="noopener">Se connecter à Liebherr</a>
+  <p><small>Faites-le sur un PC, dans un navigateur <b>sans</b> l'app Liebherr installée.</small></p>
+</div>
+<div class="card">
+  <p><b>Étape 2 —</b> récupérez le code.</p>
+  <p>Après connexion, vous arrivez sur une page « <i>Vous êtes maintenant renvoyé à
+  l'application</i> ». Le navigateur a tenté d'ouvrir une URL
+  <code>com.liebherr.hau.smartdevice://auth?code=…</code> qu'il ne sait pas ouvrir
+  (schéma privé de l'app), donc le code ne s'affiche pas tout seul. Pour le récupérer :</p>
+  <ol>
+    <li>Sur cette page, faites <b>Ctrl+U</b> (afficher le code source de la page).</li>
+    <li><b>Ctrl+F</b> puis cherchez <code>code=</code>.</li>
+    <li>Copiez l'URL entière <code>com.liebherr.hau.smartdevice://auth?code=…&amp;state=…</code></li>
+  </ol>
+  <p><small>Repli si Ctrl+U ne montre rien : ouvrez <code>chrome://history</code>,
+  cherchez « smartdevice », l'URL avec le code y figure.</small></p>
+</div>
+<div class="card">
+  <p><b>Étape 3 —</b> revenez sur cet onglet et collez l'URL ci-dessous :</p>
   <form method="post" action="/complete">
     <input type="text" name="redirect" placeholder="com.liebherr.hau.smartdevice://auth?code=..." autofocus>
     <p><button type="submit">Valider la connexion</button></p>
   </form>
-  <p><small>Astuce : faites-le sur un appareil <b>sans</b> l'app Liebherr installée
-  (un PC), sinon l'app intercepte l'URL au lieu de l'afficher.</small></p>
+  <p><small>⏱️ Le code n'est valable qu'environ une minute : collez-le sans trop tarder
+  après l'avoir copié (sinon relancez l'étape 1, la session reste ouverte).</small></p>
 </div>"""
-        body = f"""{flash_html}
-<div class="card">
-  <p class="warn">Le mode mobile n'est pas encore authentifié.</p>
-  <p><b>1.</b> Connectez votre compte Liebherr :</p>
-  <a class="button" href="/login">Se connecter à Liebherr</a>
-</div>
-{paste_form if pending else ""}"""
         return _page("Mode mobile — connexion", body)
 
     async def _login(self, request: web.Request) -> web.Response:
