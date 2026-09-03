@@ -24,7 +24,10 @@
   <Category>HomeAutomation: Status:Stable</Category>
   <WebUI/>
   <Icon>https://raw.githubusercontent.com/ripleyXLR8/liebherr2mqtt/main/liebherr2mqtt-icon.png</Icon>
-  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <!-- Pas de politique de redemarrage Docker ici : Unraid gere lui-meme le
+       demarrage automatique, et une politique tierce lui fait afficher
+       "3rd Party" a la place de l'interrupteur Autostart. -->
+  <ExtraParams/>
 
   <Config Name="Clé API HomeAPI" Target="LIEBHERR_API_KEY" Default="" Description="Générée dans l'application SmartDevice : Paramètres &gt; Devenir bêta testeur &gt; Activer l'interface HomeAPI &gt; Générer une nouvelle clé. Elle ne peut être copiée qu'une seule fois." Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Broker MQTT - hôte" Target="MQTT_HOST" Default="192.168.1.10" Description="Adresse IP ou nom d'hôte du broker MQTT." Type="Variable" Display="always" Required="true" Mask="false"/>
