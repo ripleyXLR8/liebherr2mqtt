@@ -88,10 +88,12 @@ docker run -d \
 
 ### Unraid
 
-Add this repository as a template source, or drop
-[`unraid-templates/liebherr2mqtt.xml`](unraid-templates/liebherr2mqtt.xml) into
-`/boot/config/plugins/dockerMan/templates-user/`. Every setting is a field in the UI; the API key
-field is masked.
+Install it from **Community Applications** — open the *Apps* tab and search for `liebherr2mqtt`.
+Every setting is a field in the UI, and the API key field is masked.
+
+The CA template lives in
+[ripleyXLR8/unraid-templates](https://github.com/ripleyXLR8/unraid-templates/blob/main/liebherr2mqtt.xml),
+which is the repository Community Applications indexes.
 
 ### Configuration
 
