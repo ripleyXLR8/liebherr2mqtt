@@ -124,15 +124,25 @@ homeassistant/<component>/liebherr_<device>/<entity>/config   discovery (retaine
 ## Jeedom notes
 
 Install the **MQTT Discovery** plugin, point it at your broker, and the appliance shows up on its
-own. Two traps worth knowing:
+own. Three traps worth knowing:
 
-- ⚠️ **Add `liebherr` to the plugin's "data topics" setting.** The plugin checks that the root of a
-  discovery message's state topic is in that list, and **silently ignores** the message otherwise —
-  it merely records the unknown root in `discovered_data_topics`. Nothing appears, and nothing
-  explains why.
+- The plugin only creates equipment for topic roots listed in its **data topics** setting, so
+  `liebherr` has to be there. You do not have to type it: start the plugin daemon, wait a minute,
+  refresh its configuration page, and the roots it has discovered but that are not configured yet
+  are offered with a `+` button. This is deliberate and
+  [documented](https://mips2648.github.io/jeedom-plugins-docs/MQTTDiscovery/fr_FR/#tocAnchor-1-7-2) —
+  the plugin does not auto-enable everything it finds, because that would create a lot of
+  equipment nobody asked for.
 - The plugin **renames a command after the discovery `device_class`**, which is why the setpoint
   here deliberately carries no `device_class`: it would be created as a second command named
   "Temperature" instead of "Setpoint".
+- ⚠️ **The `core::alert` widget is red on 0 and green on 1**, which is the opposite of what its
+  name suggests — Jeedom defines it in `core/config/jeedom.config.php` with `#_icon_on_#` as a green
+  check and `#_icon_off_#` as a red alert. This bridge follows the Home Assistant conventions:
+  `device_class: connectivity` is ON while the link is **up**, and `device_class: problem` is ON
+  while there **is** a problem. The plugin maps neither class, so if you put those commands on
+  `core::alert`, tick **"invert binary"** by hand on the alarms and leave it **off** on the online
+  indicator. Backwards, it shows a healthy appliance in red and a real alarm in green.
 
 ## Home Assistant notes
 
