@@ -92,6 +92,8 @@ PAYLOAD_OFF = "OFF"
 AVAILABLE = "online"
 NOT_AVAILABLE = "offline"
 
+APP_VERSION = "1.0 (mobile-api)"
+
 
 def slugify(value: str) -> str:
     """Réduit une chaîne à un identifiant utilisable dans un topic MQTT."""
@@ -1160,6 +1162,53 @@ async def run_auth(config: configparser.ConfigParser) -> int:
     return 0
 
 
+def print_banner(config: configparser.ConfigParser, auth_mode: bool) -> None:
+    """Affiche une bannière de démarrage avec un récap de la configuration."""
+
+    def g(section: str, opt: str, default: str = "") -> str:
+        return config.get(section, opt, fallback=default) if config.has_section(section) else default
+
+    mobile_on = _as_bool(g("mobile", "enabled", "false"))
+    lines = [
+        f"Version    : {APP_VERSION}",
+        f"MQTT       : {g('mqtt', 'host', '127.0.0.1')}:{g('mqtt', 'port', '1883')}"
+        f"  (discovery={g('mqtt', 'discovery_prefix', 'homeassistant')}, topics={g('mqtt', 'topic_prefix', 'liebherr')})",
+        f"HomeAPI    : clé api-key, états en push (SSE) — filet {g('liebherr', 'refresh_interval', '900')}s",
+    ]
+    if mobile_on:
+        lines.append(
+            f"Mobile-API : ACTIVÉ (expérimental) — alarmes relevées toutes les "
+            f"{g('mobile', 'poll_interval', '300')}s"
+        )
+        if _as_bool(g("mobile", "web_enabled", "true")):
+            lines.append(
+                f"Web UI     : http://{g('mobile', 'web_host', '0.0.0.0')}:"
+                f"{g('mobile', 'web_port', '8099')}  (connexion mobile + statut)"
+            )
+    else:
+        lines.append("Mobile-API : désactivé")
+    if auth_mode:
+        lines.append("Mode       : AUTH (web UI de connexion mobile seulement)")
+
+    art = [
+        r"  _ _      _   _                    ___              _   _   ",
+        r" | (_)___ | |_| |_  ___ _ _ _ _  __|_  )_ __  __ _ _| |_| |_ ",
+        r" | | / -_)| '_| ' \/ -_) '_| '_|/ -_/ /| '  \/ _` |  _|  _|  ",
+        r" |_|_\___||_,_|_||_\___|_| |_| \___/___|_|_|_\__, |\__|\__|  ",
+        r"                Liebherr SmartDevice -> MQTT   |_|          ",
+    ]
+    width = max(max(len(a) for a in art), max(len(l) for l in lines)) + 2
+    out = ["", "+" + "-" * width + "+"]
+    for a in art:
+        out.append("|" + a.ljust(width) + "|")
+    out.append("+" + "-" * width + "+")
+    for l in lines:
+        out.append("| " + l.ljust(width - 1) + "|")
+    out.append("+" + "-" * width + "+")
+    out.append("")
+    print("\n".join(out), flush=True)
+
+
 async def main() -> int:
     args = sys.argv[1:]
     auth_mode = "auth" in args
@@ -1170,6 +1219,7 @@ async def main() -> int:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         stream=sys.stdout,
     )
+    print_banner(config, auth_mode)
     if auth_mode:
         return await run_auth(config)
     bridge = Bridge(config)
