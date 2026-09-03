@@ -106,6 +106,11 @@ def enum_value(value: Any) -> str | None:
     return getattr(value, "value", value)
 
 
+def _as_bool(value: str | None) -> bool:
+    """Interprète une valeur de config texte comme un booléen."""
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass
 class Entity:
     """Une entité MQTT Discovery : un état publié, et parfois une commande."""
@@ -166,6 +171,19 @@ class Bridge:
         self._devices: dict[str, DeviceBridge] = {}
         self._commands: dict[str, tuple[DeviceBridge, Entity]] = {}
         self._stopping = asyncio.Event()
+
+        # --- Optional mobile-API subsystem (alarms/notifications) ---
+        # Everything below is inert unless [mobile] enabled is true. The module
+        # is imported lazily in _setup_mobile() so the normal api-key path never
+        # depends on it.
+        self._mobile_enabled = _as_bool(
+            config.get("mobile", "enabled", fallback="false")
+            if config.has_section("mobile")
+            else "false"
+        )
+        self._mobile: Any = None
+        self._mobile_session: Any = None
+        self._mobile_discovery_done: set[str] = set()
 
     # ------------------------------------------------------------------
     # Construction des entités à partir des contrôles déclarés par l'appareil
@@ -745,6 +763,172 @@ class Bridge:
                 len(dev.entities),
             )
 
+    # ------------------------------------------------------------------
+    # Sous-système mobile (optionnel, expérimental) — alarmes/notifications
+    # ------------------------------------------------------------------
+
+    async def _setup_mobile(self) -> bool:
+        """Prépare le client mobile. Retourne False si indisponible (jamais fatal)."""
+        try:
+            import aiohttp
+            from mobile_client import MobileClient, MobileConfig
+        except ImportError as err:
+            LOGGER.error("Mode mobile demandé mais indisponible : %s", err)
+            return False
+
+        cfg = MobileConfig.from_configparser(self._config)
+        self._mobile_session = aiohttp.ClientSession()
+        self._mobile = MobileClient(cfg, self._mobile_session)
+        if not self._mobile.is_authorised:
+            LOGGER.warning(
+                "Mode mobile activé mais aucun jeton : lancer d'abord la connexion "
+                "unique (commande 'auth'). Les alarmes ne remonteront pas tant que "
+                "ce n'est pas fait."
+            )
+            return False
+        LOGGER.info("Sous-système mobile prêt (relevé des alarmes toutes les %ds)", cfg.poll_interval)
+        return True
+
+    def _mobile_avail_topic(self, slug: str) -> str:
+        return f"{self._topic_prefix}/{slug}/mobile/availability"
+
+    # Entités d'alarme publiées par le mode mobile, sous le MÊME appareil que
+    # les commandes HomeAPI (le slug = numéro de série est identique).
+    _MOBILE_ENTITIES = {
+        "alarm_door": ("Alarme porte", {"device_class": "door"}),
+        "alarm_temperature": ("Alarme température", {"device_class": "problem"}),
+        "alarm_power": ("Coupure de courant", {"device_class": "problem"}),
+        "alarm_air_filter": ("Rappel filtre à air", {"device_class": "problem"}),
+        "alarm_other": ("Autre alarme", {"device_class": "problem"}),
+    }
+
+    def _publish_mobile_discovery(self, slug: str, device_block: dict[str, Any]) -> None:
+        """Publie une fois la découverte des entités d'alarme d'un appareil."""
+        if slug in self._mobile_discovery_done:
+            return
+        avail = self._mobile_avail_topic(slug)
+        for key, (name, extra) in self._MOBILE_ENTITIES.items():
+            payload = {
+                "name": name,
+                "unique_id": f"liebherr_{slug}_{key}",
+                "object_id": f"liebherr_{slug}_{key}",
+                "device": device_block,
+                "state_topic": f"{self._topic_prefix}/{slug}/{key}/state",
+                "payload_on": PAYLOAD_ON,
+                "payload_off": PAYLOAD_OFF,
+                "availability_topic": avail,
+                "payload_available": AVAILABLE,
+                "payload_not_available": NOT_AVAILABLE,
+                **extra,
+            }
+            self._publish(
+                f"{self._discovery_prefix}/binary_sensor/liebherr_{slug}/{key}/config",
+                json.dumps(payload, ensure_ascii=False),
+                retain=True,
+            )
+        # Texte : la dernière notification, tous types confondus.
+        self._publish(
+            f"{self._discovery_prefix}/sensor/liebherr_{slug}/last_notification/config",
+            json.dumps(
+                {
+                    "name": "Dernière notification",
+                    "unique_id": f"liebherr_{slug}_last_notification",
+                    "object_id": f"liebherr_{slug}_last_notification",
+                    "device": device_block,
+                    "state_topic": f"{self._topic_prefix}/{slug}/last_notification/state",
+                    "availability_topic": avail,
+                    "payload_available": AVAILABLE,
+                    "payload_not_available": NOT_AVAILABLE,
+                    "icon": "mdi:bell-alert",
+                },
+                ensure_ascii=False,
+            ),
+            retain=True,
+        )
+        self._publish(avail, AVAILABLE)
+        self._mobile_discovery_done.add(slug)
+
+    async def _mobile_poll(self) -> None:
+        """Relève périodiquement les notifications et publie les alarmes."""
+        from mobile_client import (
+            CATEGORY_LABEL,
+            NOTIFICATION_CATEGORY,
+            summarise_notifications,
+        )
+
+        assert self._mobile is not None
+        interval = int(
+            self._config.get("mobile", "poll_interval", fallback="300")
+            if self._config.has_section("mobile")
+            else "300"
+        )
+        # Appareils connus côté mobile, pour publier même sans alarme active.
+        try:
+            appliances = await self._mobile.get_appliances()
+        except Exception as err:  # noqa: BLE001 — jamais fatal pour le pont
+            LOGGER.warning("Liste des appareils mobile indisponible : %s", err)
+            appliances = []
+        mobile_ids = {
+            (a.get("deviceId") or a.get("applianceId"))
+            for a in appliances
+            if (a.get("deviceId") or a.get("applianceId"))
+        }
+
+        while not self._stopping.is_set():
+            try:
+                notes = await self._mobile.get_notifications()
+                summary = summarise_notifications(notes)
+                seen = set(summary) | mobile_ids
+                for device_id in seen:
+                    slug = slugify(device_id)
+                    # Réutilise le bloc device de l'appareil HomeAPI si présent,
+                    # pour que les alarmes atterrissent dans le même équipement.
+                    dev = self._devices.get(device_id)
+                    block = (
+                        self._device_block(dev)
+                        if dev is not None
+                        else {
+                            "identifiers": [f"liebherr_{slug}"],
+                            "name": "Liebherr",
+                            "manufacturer": "Liebherr",
+                        }
+                    )
+                    self._publish_mobile_discovery(slug, block)
+                    cats = summary.get(device_id, {})
+                    for key in self._MOBILE_ENTITIES:
+                        category = key[len("alarm_"):]
+                        active = cats.get(category, {}).get("active", False)
+                        self._publish(
+                            f"{self._topic_prefix}/{slug}/{key}/state",
+                            PAYLOAD_ON if active else PAYLOAD_OFF,
+                        )
+                    latest = None
+                    for cat in cats.values():
+                        cand = cat.get("latest")
+                        if cand and (
+                            latest is None
+                            or (cand.get("createdAt") or "") > (latest.get("createdAt") or "")
+                        ):
+                            latest = cand
+                    if latest:
+                        category = NOTIFICATION_CATEGORY.get(latest["type"], "other")
+                        label = CATEGORY_LABEL.get(category, latest["type"])
+                        text = f"{label} — {latest['createdAt']}"
+                        self._publish(
+                            f"{self._topic_prefix}/{slug}/last_notification/state", text
+                        )
+                    self._publish(self._mobile_avail_topic(slug), AVAILABLE)
+                LOGGER.debug("Alarmes mobile relevées (%d notification(s))", len(notes))
+            except Exception as err:  # noqa: BLE001
+                LOGGER.warning("Relevé des alarmes mobile échoué : %s", err)
+                for slug in self._mobile_discovery_done:
+                    self._publish(self._mobile_avail_topic(slug), NOT_AVAILABLE)
+            try:
+                await asyncio.wait_for(self._stopping.wait(), timeout=interval)
+                return
+            except asyncio.TimeoutError:
+                pass
+
     async def run(self) -> None:
         self._loop = asyncio.get_running_loop()
         self._client = LiebherrClient(self._api_key)
@@ -755,6 +939,8 @@ class Bridge:
                 asyncio.create_task(self._stream(dev)) for dev in self._devices.values()
             ]
             tasks.append(asyncio.create_task(self._periodic_refresh()))
+            if self._mobile_enabled and await self._setup_mobile():
+                tasks.append(asyncio.create_task(self._mobile_poll()))
             stop = asyncio.create_task(self._stopping.wait())
             done, _ = await asyncio.wait(
                 [*tasks, stop], return_when=asyncio.FIRST_COMPLETED
@@ -782,6 +968,12 @@ class Bridge:
         if self._client is not None:
             await self._client.close()
             self._client = None
+        if self._mobile_session is not None:
+            try:
+                await self._mobile_session.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._mobile_session = None
 
     def request_stop(self) -> None:
         self._stopping.set()
@@ -801,6 +993,15 @@ ENV_OVERRIDES = {
     "MQTT_DISCOVERY_PREFIX": ("mqtt", "discovery_prefix"),
     "MQTT_TOPIC_PREFIX": ("mqtt", "topic_prefix"),
     "LOG_LEVEL": ("log", "level"),
+    # --- Optional, experimental mobile-API mode (off by default) ---
+    "MOBILE_API_ENABLED": ("mobile", "enabled"),
+    "MOBILE_API_BASE": ("mobile", "api_base"),
+    "MOBILE_AUTH_BASE": ("mobile", "auth_base"),
+    "MOBILE_CLIENT_ID": ("mobile", "client_id"),
+    "MOBILE_REDIRECT_URI": ("mobile", "redirect_uri"),
+    "MOBILE_SCOPE": ("mobile", "scope"),
+    "MOBILE_TOKEN_FILE": ("mobile", "token_file"),
+    "MOBILE_POLL_INTERVAL": ("mobile", "poll_interval"),
 }
 
 
@@ -830,14 +1031,67 @@ def load_config(path: str) -> configparser.ConfigParser:
     return config
 
 
+async def run_auth(config: configparser.ConfigParser) -> int:
+    """Connexion unique au mode mobile : flux OAuth Authorization Code + PKCE.
+
+    L'utilisateur ouvre l'URL affichée, se connecte sur login.liebherr.com, et
+    recolle l'URL smartdevice://auth?code=... que le navigateur tente d'ouvrir.
+    Le jeton (dont le refresh token) est alors écrit et la passerelle s'auto-
+    authentifie ensuite toute seule.
+    """
+    import secrets
+
+    import aiohttp
+    from mobile_client import MobileAuthError, MobileClient, MobileConfig
+
+    cfg = MobileConfig.from_configparser(config)
+    async with aiohttp.ClientSession() as session:
+        client = MobileClient(cfg, session)
+        verifier, _ = generate_pkce_pair()
+        state = secrets.token_urlsafe(16)
+        url = client.build_authorize_url(verifier, state)
+        print("\n=== Connexion au mode mobile Liebherr (expérimental) ===\n")
+        print("1. Ouvrez cette URL dans un navigateur et connectez-vous :\n")
+        print(url + "\n")
+        print(
+            "2. Après connexion, le navigateur tente d'ouvrir une URL\n"
+            "   'smartdevice://auth?code=...'. Elle ne s'ouvrira pas (schéma privé) :\n"
+            "   copiez-la depuis la barre d'adresse et collez-la ci-dessous.\n"
+        )
+        redirect = input("URL de redirection : ").strip()
+        try:
+            code = client.extract_code(redirect)
+            await client.exchange_code(code, verifier)
+        except MobileAuthError as err:
+            print(f"\nÉchec : {err}\n")
+            return 4
+        print(f"\n✓ Jeton enregistré dans {cfg.token_file}")
+        try:
+            appliances = await client.get_appliances()
+            print(f"✓ Connexion vérifiée : {len(appliances)} appareil(s) visible(s) côté mobile.")
+        except Exception as err:  # noqa: BLE001
+            print(f"(Jeton enregistré, mais la vérification a échoué : {err})")
+    return 0
+
+
+def generate_pkce_pair() -> tuple[str, str]:
+    from mobile_client import generate_pkce
+
+    return generate_pkce()
+
+
 async def main() -> int:
-    path = sys.argv[1] if len(sys.argv) > 1 else CONFIG_PATH
+    args = sys.argv[1:]
+    auth_mode = "auth" in args
+    path = next((a for a in args if a != "auth"), CONFIG_PATH)
     config = load_config(path)
     logging.basicConfig(
         level=config.get("log", "level", fallback="INFO").upper(),
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         stream=sys.stdout,
     )
+    if auth_mode:
+        return await run_auth(config)
     bridge = Bridge(config)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):

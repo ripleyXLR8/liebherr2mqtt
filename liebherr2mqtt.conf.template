@@ -48,3 +48,30 @@ topic_prefix = liebherr
 [log]
 ; LOG_LEVEL - DEBUG, INFO, WARNING or ERROR.
 level = INFO
+
+; ---------------------------------------------------------------------------
+; [mobile] - EXPERIMENTAL. Off by default. Leave this whole section out for
+; normal operation. It talks to Liebherr's internal mobile API to surface data
+; the HomeAPI does not expose (door/temperature/power/air-filter alarms). It is
+; an undocumented API and requires a one-off OAuth login; see the README.
+; ---------------------------------------------------------------------------
+[mobile]
+; MOBILE_API_ENABLED
+enabled = false
+
+; MOBILE_POLL_INTERVAL - seconds between notification polls (this endpoint has
+; no push, so it is polled; keep it conservative).
+poll_interval = 300
+
+; Where the OAuth token (incl. refresh token) is stored. Keep it on a
+; persisted volume so the login survives a container restart.
+; MOBILE_TOKEN_FILE
+token_file = /config/liebherr_mobile_token.json
+
+; The rest default to the values used by the official app and rarely need
+; changing (staging/dev hosts aside):
+; MOBILE_AUTH_BASE      = https://login.liebherr.com
+; MOBILE_API_BASE       = https://mobile-api.smartdevice.liebherr.com
+; MOBILE_CLIENT_ID      = mobileapps_hau_smartdevice_flutter
+; MOBILE_REDIRECT_URI   = smartdevice://auth
+; MOBILE_SCOPE          = openid profile email offline_access

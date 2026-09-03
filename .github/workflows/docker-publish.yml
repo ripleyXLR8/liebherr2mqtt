@@ -2,7 +2,10 @@ name: Docker Build and Publish
 
 on:
   push:
-    branches: [ "main" ]
+    # The experimental mobile-api branch also builds, so it can be tested from
+    # a dedicated image tag (ghcr.io/.../liebherr2mqtt:mobile-api) without ever
+    # touching :latest, which stays pinned to main.
+    branches: [ "main", "mobile-api" ]
   pull_request:
     branches: [ "main" ]
 

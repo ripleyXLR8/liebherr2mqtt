@@ -134,6 +134,72 @@ own. Two traps worth knowing:
   here deliberately carries no `device_class`: it would be created as a second command named
   "Temperature" instead of "Setpoint".
 
+## Experimental: mobile-API mode (alarms)
+
+> **This section only exists on the `mobile-api` branch.** It is off by default
+> and does not affect normal operation. Do not merge it to `main` without a
+> deliberate decision — it relies on Liebherr's **undocumented internal mobile
+> API**, which can change without notice, and replaying the app's OAuth client
+> is more sensitive towards Liebherr's terms than the official HomeAPI key. It
+> runs on the account whose credentials complete the login.
+
+The documented HomeAPI does **not** expose appliance alarms. The official app
+gets them from a separate internal API (`mobile-api.smartdevice.liebherr.com`),
+authenticated with an OAuth token from `login.liebherr.com`. When enabled, this
+mode logs in once, then polls `/v1/household/notifications` and publishes a few
+extra entities **under the same device**:
+
+| Entity | Type | Meaning |
+|---|---|---|
+| Alarme porte | binary_sensor | Door-left-open alarm active |
+| Alarme température | binary_sensor | Temperature alarm active (high or low) |
+| Coupure de courant | binary_sensor | Power-failure alarm |
+| Rappel filtre à air | binary_sensor | Air-filter reminder |
+| Autre alarme | binary_sensor | Any other/unknown notification type |
+| Dernière notification | sensor | Most recent notification (type + timestamp) |
+
+> These are alarm **events** (e.g. "door has been open too long"), not a live
+> door open/closed state — the API has no such field. For continuous door
+> state, a Zigbee door sensor is still the better tool.
+
+### Enabling it
+
+**1. Get a `:mobile-api` image.** Pushing this branch builds
+`ghcr.io/ripleyxlr8/liebherr2mqtt:mobile-api` (multi-arch), which stays separate
+from `:latest`.
+
+**2. One-off login.** The OAuth flow needs an interactive login in a browser
+_you_ control; the bridge never sees your Liebherr password.
+
+```bash
+docker run -it --rm \
+  -v /mnt/user/appdata/liebherr2mqtt:/config \
+  ghcr.io/ripleyxlr8/liebherr2mqtt:mobile-api auth
+```
+
+It prints an authorization URL. Open it, log in on `login.liebherr.com`, and the
+browser will try to open a `smartdevice://auth?code=...` URL that does not
+resolve (it is the app's private scheme) — copy that whole URL from the address
+bar and paste it back at the prompt. The token, including a refresh token, is
+written to `/config/liebherr_mobile_token.json` and the login is not needed
+again.
+
+**3. Turn the mode on.** Set `MOBILE_API_ENABLED=true` (or `enabled = true`
+under `[mobile]` in the config file) and restart the container normally. The
+HomeAPI path keeps working exactly as before; the alarm entities appear
+alongside it.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MOBILE_API_ENABLED` | `false` | Master switch for this mode |
+| `MOBILE_POLL_INTERVAL` | `300` | Seconds between notification polls |
+| `MOBILE_TOKEN_FILE` | `/config/liebherr_mobile_token.json` | OAuth token store |
+| `MOBILE_AUTH_BASE` / `MOBILE_API_BASE` | login / mobile-api hosts | Override for staging |
+| `MOBILE_CLIENT_ID` / `MOBILE_REDIRECT_URI` / `MOBILE_SCOPE` | app defaults | Rarely changed |
+
+If the mode is enabled but no token exists yet, the bridge logs a warning and
+carries on in normal mode — it never blocks on the mobile side.
+
 ## Home Assistant notes
 
 If you use Home Assistant, prefer its
