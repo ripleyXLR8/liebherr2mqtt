@@ -91,6 +91,8 @@ PAYLOAD_OFF = "OFF"
 AVAILABLE = "online"
 NOT_AVAILABLE = "offline"
 
+APP_VERSION = "1.0"
+
 
 def slugify(value: str) -> str:
     """Réduit une chaîne à un identifiant utilisable dans un topic MQTT."""
@@ -830,6 +832,37 @@ def load_config(path: str) -> configparser.ConfigParser:
     return config
 
 
+def print_banner(config: configparser.ConfigParser) -> None:
+    """Affiche une bannière de démarrage avec un récap de la configuration."""
+
+    def g(section: str, opt: str, default: str = "") -> str:
+        return config.get(section, opt, fallback=default) if config.has_section(section) else default
+
+    lines = [
+        f"Version    : {APP_VERSION}",
+        f"MQTT       : {g('mqtt', 'host', '127.0.0.1')}:{g('mqtt', 'port', '1883')}"
+        f"  (discovery={g('mqtt', 'discovery_prefix', 'homeassistant')}, topics={g('mqtt', 'topic_prefix', 'liebherr')})",
+        f"HomeAPI    : clé api-key, états en push (SSE) — filet {g('liebherr', 'refresh_interval', '900')}s",
+    ]
+    art = [
+        r"  _ _      _   _                    ___              _   _   ",
+        r" | (_)___ | |_| |_  ___ _ _ _ _  __|_  )_ __  __ _ _| |_| |_ ",
+        r" | | / -_)| '_| ' \/ -_) '_| '_|/ -_/ /| '  \/ _` |  _|  _|  ",
+        r" |_|_\___||_,_|_||_\___|_| |_| \___/___|_|_|_\__, |\__|\__|  ",
+        r"                Liebherr SmartDevice -> MQTT   |_|          ",
+    ]
+    width = max(max(len(a) for a in art), max(len(l) for l in lines)) + 2
+    out = ["", "+" + "-" * width + "+"]
+    for a in art:
+        out.append("|" + a.ljust(width) + "|")
+    out.append("+" + "-" * width + "+")
+    for l in lines:
+        out.append("| " + l.ljust(width - 1) + "|")
+    out.append("+" + "-" * width + "+")
+    out.append("")
+    print("\n".join(out), flush=True)
+
+
 async def main() -> int:
     path = sys.argv[1] if len(sys.argv) > 1 else CONFIG_PATH
     config = load_config(path)
@@ -838,6 +871,7 @@ async def main() -> int:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
         stream=sys.stdout,
     )
+    print_banner(config)
     bridge = Bridge(config)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
