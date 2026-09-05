@@ -263,9 +263,7 @@ class Bridge:
                             "step": 1,
                             "unit_of_measurement": unit.value,
                             "mode": "slider",
-                            # Pas de device_class ici : le plugin Jeedom
-                            # renomme la commande d'après ce champ, ce qui
-                            # écraserait « Consigne » par « Température ».
+                            "device_class": "temperature",
                         },
                         render=lambda c: None if c.target is None else str(c.target),
                         command=set_target,
