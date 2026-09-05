@@ -289,9 +289,7 @@ class Bridge:
                             "step": 1,
                             "unit_of_measurement": unit.value,
                             "mode": "slider",
-                            # Pas de device_class ici : le plugin Jeedom
-                            # renomme la commande d'après ce champ, ce qui
-                            # écraserait « Consigne » par « Température ».
+                            "device_class": "temperature",
                         },
                         render=lambda c: None if c.target is None else str(c.target),
                         command=set_target,
@@ -838,8 +836,9 @@ class Bridge:
     # Entités d'alarme publiées par le mode mobile, sous le MÊME appareil que
     # les commandes HomeAPI (le slug = numéro de série est identique).
     _MOBILE_ENTITIES = {
-        # device_class "problem" (not "door") so the Jeedom MQTT Discovery
-        # plugin keeps our name instead of forcing "Etat porte".
+        # Ces cinq entités sont des alarmes, pas des états : device_class
+        # "problem" pour toutes les cinq, conformément aux conventions Home
+        # Assistant rappelées dans le README.
         "alarm_door": ("Alerte porte", {"device_class": "problem"}),
         "alarm_temperature": ("Alarme température", {"device_class": "problem"}),
         "alarm_power": ("Coupure de courant", {"device_class": "problem"}),

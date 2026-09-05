@@ -133,9 +133,10 @@ own. Three traps worth knowing:
   [documented](https://mips2648.github.io/jeedom-plugins-docs/MQTTDiscovery/fr_FR/#tocAnchor-1-7-2) —
   the plugin does not auto-enable everything it finds, because that would create a lot of
   equipment nobody asked for.
-- The plugin **renames a command after the discovery `device_class`**, which is why the setpoint
-  here deliberately carries no `device_class`: it would be created as a second command named
-  "Temperature" instead of "Setpoint".
+- The plugin renames a command after the discovery `device_class` **only when no `name` is
+  published**. Since the MQTT Discovery beta of 2026-09-05 the published `name` wins, so the
+  setpoint carries `device_class: temperature` again and is still created as "Consigne", with the
+  `generic_type` and default widget the class brings.
 - ⚠️ **The `core::alert` widget is red on 0 and green on 1**, which is the opposite of what its
   name suggests — Jeedom defines it in `core/config/jeedom.config.php` with `#_icon_on_#` as a green
   check and `#_icon_off_#` as a red alert. This bridge follows the Home Assistant conventions:
